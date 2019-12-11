@@ -1,0 +1,56 @@
+version: '3'
+services:
+  node:
+    image: aeternity/aeternity:v5.2.0
+    hostname: node
+    ports: 
+      - "3013:3013" # external API
+      - "3014:3014" # websockets for state channels
+      - "3113:3113" # debug API
+    environment:
+      AETERNITY_CONFIG: /home/aeternity/aeternity.yaml
+    command: bin/aeternity console -noinput -aecore expected_mine_rate ${AETERNITY_MINE_RATE:-15000}
+    volumes:
+      - ${PWD}/docker/aeternity_node_mean16.yaml:/home/aeternity/aeternity.yaml
+      - ${PWD}/docker/accounts.json:/home/aeternity/node/data/aecore/.genesis/accounts_test.json
+      - node_db:/home/aeternity/node/data/mnesia
+
+  compiler:
+    image: aeternity/aesophia_http:v4.0.0
+    hostname: compiler
+    ports:
+      - "3080:3080"
+  
+  middleware:
+    image: aeternity/aeternal:latest
+    ports:
+      - "8080:80"
+      - "3020:3020"
+    entrypoint: ./docker/wait-for-it.sh node:3013 -- ./aeternal -p -s -w
+    environment:
+      - NODE_URL=node:3013
+      - AESOPHIA_URL=compiler:3080
+      - DATABASE_URL=postgres://middleware:middleware@db/middleware
+    volumes:
+      - ${PWD}/docker/middleware-wait-for-it.sh:/app/docker/wait-for-it.sh
+    depends_on:
+      - db
+      - node
+      - compiler
+  
+  db:
+    image: postgres:11
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=middleware
+      - POSTGRES_PASSWORD=middleware
+      - POSTGRES_DB=middleware
+    volumes: 
+      - ae-mdw-postgres-volume:/var/lib/postgresql/data
+    expose: [5432]
+
+volumes:
+  node_db:
+  node_keys:
+  ae-mdw-postgres-volume:
+    external: false
